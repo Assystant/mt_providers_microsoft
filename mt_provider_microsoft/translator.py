@@ -4,6 +4,7 @@ import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
+import aiohttp
 import requests
 from mt_providers.base import BaseTranslationProvider
 from mt_providers.exceptions import ConfigurationError
