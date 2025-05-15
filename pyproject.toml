@@ -1,0 +1,87 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mt_provider_microsoft"
+version = "0.1.0"
+description = "Microsoft Translator Extension for MT Providers Framework"
+readme = "README.md"
+authors = [
+    { name = "Saket Shukla", email = "saket@assystant.com" }
+]
+license = "MIT"
+keywords = ["translation", "machine-translation", "nlp", "language", "microsoft-translator", "mt-providers", "microsoft"]
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+]
+dependencies = [
+    "mt_providers>=0.1.0,<0.2.0",
+    "requests>=2.25.0,<3.0.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=6.0.0",
+    "pytest-asyncio>=0.18.0",
+    "pytest-cov>=2.0.0",
+    "requests-mock>=1.9.0",
+    "black>=22.3.0",
+    "isort>=5.10.1",
+    "mypy>=0.981",
+    "types-requests>=2.28.0",
+]
+docs = [
+    "sphinx>=4.0.0",
+    "sphinx-rtd-theme>=1.0.0",
+]
+[project.entry-points."mt_providers"]
+microsoft = "mt_provider_microsoft:MicrosoftTranslator"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mt_provider_microsoft"]
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+show_error_codes = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["mt_providers.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "--cov=mt_providers --cov-report=xml --cov-report=term-missing"
+testpaths = ["tests"]
