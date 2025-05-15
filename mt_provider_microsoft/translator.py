@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -39,10 +40,17 @@ class MicrosoftTranslator(BaseTranslationProvider):
             "Content-Type": "application/json",
         }
 
+    async def _enforce_rate_limit(self) -> None:
+        """Enforce rate limiting before making requests."""
+        await self._handle_rate_limit()
+
     def translate(
         self, text: str, source_lang: str, target_lang: str
     ) -> TranslationResponse:
-        """Translate a single text using Microsoft Translator."""
+        """Translate single text using Microsoft Translator."""
+        if self.config.rate_limit:
+            asyncio.run(self._enforce_rate_limit())
+
         try:
             params = {
                 "api-version": "3.0",
@@ -191,3 +199,55 @@ class MicrosoftTranslator(BaseTranslationProvider):
                 )
                 for text in texts
             ]
+
+    async def translate_async(
+        self, text: str, source_lang: str, target_lang: str
+    ) -> TranslationResponse:
+        """Async translation implementation using aiohttp."""
+        try:
+            async with aiohttp.ClientSession() as session:
+                params = {
+                    "api-version": "3.0",
+                    "from": source_lang,
+                    "to": target_lang,
+                }
+
+                payload = [{"text": text}]
+
+                async with session.post(
+                    self.base_url,
+                    headers=self._get_headers(),
+                    params=params,
+                    json=payload,
+                    timeout=self.config.timeout,
+                ) as response:
+                    response.raise_for_status()
+                    translation_result = await response.json()
+
+                    if not translation_result or not translation_result[0]["translations"]:
+                        raise ValueError("Empty translation response")
+
+                    translated_text = translation_result[0]["translations"][0]["text"]
+
+                    return self._create_response(
+                        translated_text=translated_text,
+                        source_lang=source_lang,
+                        target_lang=target_lang,
+                        char_count=len(text),
+                        metadata={
+                            "detected_language": translation_result[0].get(
+                                "detectedLanguage", {}
+                            ),
+                            "response": translation_result,
+                        },
+                    )
+
+        except Exception as e:
+            logger.error(f"Async translation failed: {str(e)}")
+            return self._create_response(
+                translated_text="",
+                source_lang=source_lang,
+                target_lang=target_lang,
+                char_count=len(text),
+                error=str(e),
+            )

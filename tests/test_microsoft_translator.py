@@ -1,5 +1,5 @@
 from typing import Any
-
+import time
 import pytest
 from mt_providers.exceptions import ConfigurationError
 from mt_providers.types import TranslationConfig, TranslationStatus
@@ -79,3 +79,24 @@ def test_batch_translation_limits(
 
     results = translator.bulk_translate(texts, "en", "es")
     assert len(results) == 150
+
+
+@pytest.mark.asyncio
+async def test_translate_async(translator: MicrosoftTranslator, aiohttp_client: Any) -> None:
+    mock_response = [{
+        "translations": [{"text": "¡Hola mundo!"}],
+        "detectedLanguage": {"language": "en", "score": 1.0}
+    }]
+    
+    result = await translator.translate_async("Hello world", "en", "es")
+    assert result["translated_text"] == "¡Hola mundo!"
+
+
+def test_rate_limiting(translator: MicrosoftTranslator, requests_mock: Any) -> None:
+    translator.config.rate_limit = 2  # 2 requests per second
+    
+    start_time = time.time()
+    results = translator.bulk_translate(["test1", "test2", "test3"], "en", "es")
+    duration = time.time() - start_time
+    
+    assert duration >= 1.0  # Should take at least 1 second for rate limiting
