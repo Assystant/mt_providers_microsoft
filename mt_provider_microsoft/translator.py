@@ -4,7 +4,6 @@ import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
-import aiohttp
 import requests
 from mt_providers.base import BaseTranslationProvider
 from mt_providers.exceptions import ConfigurationError
@@ -18,10 +17,7 @@ class MicrosoftTranslator(BaseTranslationProvider):
 
     name = "microsoft"
     requires_region = True
-    supports_async = True
-    max_chunk_size = 5000  # Microsoft's limit is 5000 characters per request
-    max_array_size = 100  # Microsoft's limit is 100 texts per request
-    min_supported_version = "0.1.0"
+    min_supported_version = "0.1.4"
 
     def __init__(self, config: TranslationConfig) -> None:
         super().__init__(config)
@@ -40,133 +36,46 @@ class MicrosoftTranslator(BaseTranslationProvider):
             "Ocp-Apim-Subscription-Region": self.config.region,
             "Content-Type": "application/json",
         }
-
-    async def _enforce_rate_limit(self) -> None:
-        """Enforce rate limiting before making requests."""
-        await self._handle_rate_limit()
+    
+    def _get_params(self, source_lang: str, target_lang: str) -> Dict[str, Any]:
+        """Get request parameters for translation."""
+        return {
+            "api-version": "3.0",
+            "from": source_lang,
+            "to": target_lang,
+        }
 
     def translate(
         self, text: str, source_lang: str, target_lang: str
     ) -> TranslationResponse:
         """Translate single text using Microsoft Translator."""
-        if self.config.rate_limit:
-            asyncio.run(self._enforce_rate_limit())
-
-        try:
-            params = {
-                "api-version": "3.0",
-                "from": source_lang,
-                "to": target_lang,
-            }
-
-            payload = [{"text": text}]
-
-            response = requests.post(
-                self.base_url,
-                headers=self._get_headers(),
-                params=params,
-                json=payload,
-                timeout=self.config.timeout,
-            )
-
-            response.raise_for_status()
-            translation_result = response.json()
-
-            if not translation_result or not translation_result[0]["translations"]:
-                raise ValueError("Empty translation response")
-
-            translated_text = translation_result[0]["translations"][0]["text"]
-
-            return self._create_response(
-                translated_text=translated_text,
-                source_lang=source_lang,
-                target_lang=target_lang,
-                char_count=len(text),
-                metadata={
-                    "detected_language": translation_result[0].get(
-                        "detectedLanguage", {}
-                    ),
-                    "response": translation_result,
-                },
-            )
-
-        except Exception as e:
-            logger.error(f"Translation failed: {str(e)}")
-            return self._create_response(
-                translated_text="",
-                source_lang=source_lang,
-                target_lang=target_lang,
-                char_count=len(text),
-                error=str(e),
-            )
+        # Use the batch method for a single text
+        result_list = self._translate_via_microsoft([{"text": text}], source_lang, target_lang)
+        return result_list[0] if result_list else self._create_response(
+            translated_text="",
+            source_lang=source_lang,
+            target_lang=target_lang,
+            char_count=len(text),
+            error="No response from Microsoft Translator",
+        )
 
     def bulk_translate(
         self, texts: List[str], source_lang: str, target_lang: str
     ) -> List[TranslationResponse]:
-        """Translate multiple texts efficiently using Microsoft's batch API."""
-        if not texts:
-            return []
+        return self._translate_via_microsoft(
+            [{"text": text} for text in texts], source_lang, target_lang
+        )
 
-        results: List[TranslationResponse] = []
-        current_batch: List[Dict[str, str]] = []
-        current_batch_size = 0
-
-        try:
-            for text in texts:
-                text_size = len(text)
-
-                # Check if adding this text would exceed limits
-                if (
-                    len(current_batch) >= self.max_array_size
-                    or current_batch_size + text_size > self.max_chunk_size
-                ):
-                    # Translate current batch
-                    results.extend(
-                        self._translate_batch(current_batch, source_lang, target_lang)
-                    )
-                    current_batch = []
-                    current_batch_size = 0
-
-                current_batch.append({"text": text})
-                current_batch_size += text_size
-
-            # Translate any remaining texts
-            if current_batch:
-                results.extend(
-                    self._translate_batch(current_batch, source_lang, target_lang)
-                )
-
-            return results
-
-        except Exception as e:
-            logger.error(f"Batch translation failed: {str(e)}")
-            # Return failed responses for all remaining texts
-            return [
-                self._create_response(
-                    translated_text="",
-                    source_lang=source_lang,
-                    target_lang=target_lang,
-                    char_count=len(text["text"]),
-                    error=str(e),
-                )
-                for text in current_batch
-            ]
-
-    def _translate_batch(
+    def _translate_via_microsoft(
         self, texts: List[Dict[str, str]], source_lang: str, target_lang: str
     ) -> List[TranslationResponse]:
         """Internal method to translate a batch of texts."""
         try:
-            params = {
-                "api-version": "3.0",
-                "from": source_lang,
-                "to": target_lang,
-            }
 
             response = requests.post(
                 self.base_url,
                 headers=self._get_headers(),
-                params=params,
+                params=self._get_params(source_lang, target_lang),
                 json=texts,
                 timeout=self.config.timeout,
             )
@@ -200,55 +109,3 @@ class MicrosoftTranslator(BaseTranslationProvider):
                 )
                 for text in texts
             ]
-
-    async def translate_async(
-        self, text: str, source_lang: str, target_lang: str
-    ) -> TranslationResponse:
-        """Async translation implementation using aiohttp."""
-        try:
-            async with aiohttp.ClientSession() as session:
-                params = {
-                    "api-version": "3.0",
-                    "from": source_lang,
-                    "to": target_lang,
-                }
-
-                payload = [{"text": text}]
-
-                async with session.post(
-                    self.base_url,
-                    headers=self._get_headers(),
-                    params=params,
-                    json=payload,
-                    timeout=self.config.timeout,
-                ) as response:
-                    response.raise_for_status()
-                    translation_result = await response.json()
-
-                    if not translation_result or not translation_result[0]["translations"]:
-                        raise ValueError("Empty translation response")
-
-                    translated_text = translation_result[0]["translations"][0]["text"]
-
-                    return self._create_response(
-                        translated_text=translated_text,
-                        source_lang=source_lang,
-                        target_lang=target_lang,
-                        char_count=len(text),
-                        metadata={
-                            "detected_language": translation_result[0].get(
-                                "detectedLanguage", {}
-                            ),
-                            "response": translation_result,
-                        },
-                    )
-
-        except Exception as e:
-            logger.error(f"Async translation failed: {str(e)}")
-            return self._create_response(
-                translated_text="",
-                source_lang=source_lang,
-                target_lang=target_lang,
-                char_count=len(text),
-                error=str(e),
-            )
